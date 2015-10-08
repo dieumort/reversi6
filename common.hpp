@@ -1,16 +1,25 @@
 /**
  * @file common.hpp
  */
-#ifndef COMMON_HPP_
-#define COMMON_HPP_
+#ifndef REVERSI6_COMMON_HPP_
+#define REVERSI6_COMMON_HPP_
 
 #include <cstdint>
 
-// typedef
-typedef std::uint64_t uint64_t;
+//-----------------------------------------------------------------------------
 
-// constatns
-const int MIN_SCORE = -36;
-const int MAX_SCORE = +36;
+namespace reversi6 {
 
-#endif
+using info_t = std::uint64_t;
+
+constexpr int MIN_SCORE = -36;
+constexpr int MAX_SCORE = +36;
+constexpr int MAX_LEGALS = 18;
+
+} // namespace reversi6
+
+//-----------------------------------------------------------------------------
+
+#endif // REVERSI6_COMMON_HPP_
+
+//-----------------------------------------------------------------------------

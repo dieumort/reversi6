@@ -1,11 +1,14 @@
 /**
  * @file board.hpp
  */
-#ifndef BOARD_HPP_
-#define BOARD_HPP_
+#ifndef REVERSI6_BOARD_HPP_
+#define REVERSI6_BOARD_HPP_
 
-#include <string>
 #include "common.hpp"
+
+//-----------------------------------------------------------------------------
+
+namespace reversi6 {
 
 //-----------------------------------------------------------------------------
 
@@ -16,22 +19,16 @@ class Board {
 public:
   // constructor/destructor
   Board();
-  Board(const Board & board) = default;
-  Board(Board && board) = default;
+  Board(const Board & rhs) = default;
+  Board(Board && rhs) = default;
   Board(int n, char const * moves[]);
   virtual ~Board() = default;
 
   // copy/move
-  Board & operator=(const Board & lhs) = default;
-  Board & operator=(Board && lhs) = default;
+  Board & operator=(const Board & rhs) = default;
+  Board & operator=(Board && rhs) = default;
 
 //-----------------------------------------------------------------------------
-
-  // no empty
-  bool has_no_empty() const;
-
-  // one empty
-  bool has_one_empty() const;
 
   // black score - white score
   int evaluate() const;
@@ -39,11 +36,17 @@ public:
   // at least one legal move
   bool can_move() const;
 
+  // one empty
+  info_t get_move_if_one_empty() const;
+
   // legal moves pattern
-  uint64_t generate_moves() const;
+  info_t generate_moves() const;
+
+  // next mobility
+  int get_next_mobility(info_t move) const;
 
   // set move
-  void set_move(uint64_t move);
+  void set_move(info_t move);
 
   // pass
   void pass();
@@ -52,18 +55,22 @@ public:
 
 private:
   // members
-  uint64_t m_black;
-  uint64_t m_white;
+  info_t m_black;
+  info_t m_white;
 
   // helper for generate_moves
-  uint64_t generate_some_moves(int dir, uint64_t mask) const;
+  info_t generate_some_moves(int dir, info_t mask) const;
 
   // helper for set_moves
-  uint64_t generate_some_flipped(uint64_t move, int dir, uint64_t mask) const;
+  info_t generate_some_flipped(info_t move, int dir, info_t mask) const;
 };
 
 //-----------------------------------------------------------------------------
 
-#endif // BOARD_HPP_
+} // namespace reversi6
+
+//-----------------------------------------------------------------------------
+
+#endif // REVERSI6_BOARD_HPP_
 
 //-----------------------------------------------------------------------------

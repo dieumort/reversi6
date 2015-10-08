@@ -2,13 +2,20 @@
  * main.cpp
  */
 #include <iostream>
+#include "board.hpp"
+#include "pvs.hpp"
 #include "test/test_board.hpp"
 
-using namespace std;
-
 int main(int argc, char const * argv[]) {
-    cout << "reversi6" << endl;
-    test::test_board();
+  using namespace std;
+  using namespace reversi6;
 
-    return 0;
+  //TestBoard test;
+  //test.test_board();
+
+  Board b(argc - 1, argv + 1);
+  Pvs pvs;
+  std::cout << pvs.search(b) << std::endl;
+
+  return 0;
 }
