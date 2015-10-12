@@ -3,7 +3,9 @@
  */
 #include <cctype>
 #include <cstring>
+#include <array>
 #include <utility>
+#include <algorithm>
 #include "board.hpp"
 
 //-----------------------------------------------------------------------------
@@ -12,20 +14,29 @@ namespace reversi6 {
 
 //-----------------------------------------------------------------------------
 
-constexpr info_t MASK_BOARD = 0x007E7E7E7E7E7E00ULL;
-constexpr info_t INITIAL_BLACK = 0x0000000810000000ULL;
-constexpr info_t INITIAL_WHITE = 0x0000001008000000ULL;
-constexpr info_t UPPER_LEFT_MOVE = 0x0040000000000000ULL;
+constexpr std::uint64_t MASK_BOARD = 0x007E7E7E7E7E7E00ULL;
+constexpr std::uint64_t INITIAL_BLACK = 0x0000000810000000ULL;
+constexpr std::uint64_t INITIAL_WHITE = 0x0000001008000000ULL;
+constexpr std::uint64_t UPPER_LEFT_MOVE = 0x0040000000000000ULL;
 
 constexpr int NS = 8;
 constexpr int EW = 1;
 constexpr int NESW = 7;
 constexpr int NWSE = 9;
 
-constexpr info_t NS_MASK = 0x00007E7E7E7E0000ULL;
-constexpr info_t EW_MASK = 0x003C3C3C3C3C3C00ULL;
-constexpr info_t NESW_MASK = 0x00003C3C3C3C0000ULL;
-constexpr info_t NWSE_MASK = 0x00003C3C3C3C0000ULL;
+// masks
+constexpr std::uint64_t MASKS[] = {0, 0x003C3C3C3C3C3C00ULL, 0, 0, 0, 0, 0, 0x00003C3C3C3C0000ULL, 0x00007E7E7E7E0000ULL, 0x00003C3C3C3C0000ULL};
+
+// static value
+// 32 32 32 32 32 32 32 32
+// 32 03 25 09 07 23 01 32
+// 32 27 31 17 15 29 21 32
+// 32 11 19 32 32 13 05 32
+// 32 10 18 32 32 12 04 32
+// 32 26 30 16 14 28 20 32
+// 32 02 24 08 06 22 00 32
+// 32 32 32 32 32 32 32 32
+constexpr int STATIC_VALUES[] = {32, 32, 32, 32, 32, 32, 32, 32, 32, 0, 22, 6, 8, 24, 2, 32, 32, 20, 28, 14, 16, 30, 26, 32, 32, 4, 12, 32, 32, 18, 10, 32, 32, 5, 13, 32, 32, 19, 11, 32, 32, 21, 29, 15, 17, 31, 27, 32, 32, 1, 23, 7, 9, 25, 3, 32, 32, 32, 32, 32, 32, 32, 32, 32};
 
 int count_bits(std::uint64_t p) {
   p -= (p >> 1) & 0x5555555555555555ULL;
@@ -37,7 +48,7 @@ int count_bits(std::uint64_t p) {
 }
 //-----------------------------------------------------------------------------
 
-// constructor/destructor
+// constructor
 Board::Board()
 : m_black(INITIAL_BLACK), m_white(INITIAL_WHITE) {
 }
@@ -63,62 +74,135 @@ Board::Board(int n, char const * moves[])
       continue;
     }
 
-    const info_t move = UPPER_LEFT_MOVE >> (col + row * 8);
-    set_move(move);
+    // play move
+    const uint64_t move = UPPER_LEFT_MOVE >> (col + row * 8);
+    play(move);
   }
 }
 
 //-----------------------------------------------------------------------------
 
-// black score - white score
+// score (black - white)
 int Board::evaluate() const {
   return count_bits(m_black) - count_bits(m_white);
 }
 
-// at least one legal move
-bool Board::can_move() const {
-  return generate_some_moves(NS, NS_MASK) || generate_some_moves(EW, EW_MASK) || generate_some_moves(NESW, NESW_MASK) || generate_some_moves(NWSE, NWSE_MASK);
+// has legals
+bool Board::has_legals() const {
+  return generate_some_legals(NS) || generate_some_legals(EW) || generate_some_legals(NESW) || generate_some_legals(NWSE);
 }
 
-// one empty
-info_t Board::get_move_if_one_empty() const {
-  const info_t empties = (~(m_black | m_white)) & MASK_BOARD;
-  const info_t one_move = empties & (-empties);
-  const info_t mask = - ((((empties ^ one_move) >> 1) - 1) >> 63);
-  return one_move & mask;
+// count empties
+int Board::count_empties() const {
+  const uint64_t empties = (~(m_black | m_white)) & MASK_BOARD;
+  return count_bits(empties);
 }
 
-// legal moves pattern
-info_t Board::generate_moves() const {
-  info_t moves = generate_some_moves(NS, NS_MASK);
-  moves |= generate_some_moves(EW, EW_MASK);
-  moves |= generate_some_moves(NESW, NESW_MASK);
-  moves |= generate_some_moves(NWSE, NWSE_MASK);
-  return moves;
+// generate next Board vector
+std::vector<Board> Board::generate_next_board_vector() const {
+  // candidates
+  Candidates candidates(generate_candidates());
+
+  // legals
+  std::uint64_t legals = generate_legals(candidates);
+  const int legals_size = count_bits(legals);
+
+  // next vector
+  std::vector<Board> vec;
+  vec.reserve(legals_size);
+
+  while (legals) {
+    // legals
+    const std::uint64_t legal = legals & (-legals);
+    const std::uint64_t rev = generate_flipped(legal, candidates);
+
+    // next
+    Board next(*this);
+    next.play(legal, rev);
+    vec.emplace_back(std::move(next));
+
+    legals ^= legal;
+  }
+
+  return vec;
 }
 
-// next mobility
-int Board::get_next_mobility(info_t move) const {
-  Board next(*this);
-  next.set_move(move);
+// generate next Board vector (sorted)
+std::vector<Board> Board::generate_next_board_sorted_vector() const {
+  // candidates
+  Candidates candidates(generate_candidates());
 
-  return count_bits(next.generate_moves());
+  // legals
+  std::uint64_t legals = generate_legals(candidates);
+  const int legals_size = count_bits(legals);
+
+  // next vector
+  std::vector<Board> vec;
+  vec.reserve(legals_size);
+
+  // score vector
+  std::vector<int> score_vec;
+  score_vec.reserve(legals_size);
+
+  while (legals) {
+    // legals
+    const std::uint64_t legal = legals & (-legals);
+    const std::uint64_t rev = generate_flipped(legal, candidates);
+
+    // next
+    Board next(*this);
+    next.play(legal, rev);
+
+    // STATIC_VALUES[NTZ] & mobility
+    int score = STATIC_VALUES[count_bits(legal - 1)];
+    score += next.count_legals() << 8;
+
+    // add
+    vec.emplace_back(std::move(next));
+    score_vec.push_back(score);
+
+    // sort
+    for (int i = vec.size() - 1; i != 0; --i) {
+      if (score_vec[i] < score_vec[i - 1]) {
+        std::swap(vec[i], vec[i - 1]);
+        std::swap(score_vec[i], score_vec[i - 1]);
+      }
+    }
+
+    legals ^= legal;
+  }
+
+  return vec;
 }
 
-// set move
-void Board::set_move(info_t move) {
-  // generate flipped
-  info_t flipped = generate_some_flipped(move, NS, NS_MASK);
-  flipped |= generate_some_flipped(move, EW, EW_MASK);
-  flipped |= generate_some_flipped(move, NESW, NESW_MASK);
-  flipped |= generate_some_flipped(move, NWSE, NWSE_MASK);
+// play to end game if there is only one empty
+bool Board::play_to_end_game_if_one_empty() {
+  // get one move
+  const uint64_t empties = (~(m_black | m_white)) & MASK_BOARD;
+  const uint64_t one_move = empties & (-empties);
 
-  // flip
-  m_black ^= move | flipped;
-  m_white ^= flipped;
+  // there are two or more moves
+  if (empties != one_move) {
+    return false;
+  }
 
-  // change turn
-  std::swap(m_black, m_white);
+  // play move
+  const uint64_t rev = generate_flipped(one_move);
+  if (rev) {
+    // flip
+    flip(one_move, rev);
+  } else {
+    // change turn & flip & change turn
+    pass();
+    const uint64_t rev_white = generate_flipped(one_move);
+    if (rev_white) {
+      flip(one_move, rev_white);
+    }
+    pass();
+  }
+
+  // black turn
+  return true;
 }
 
 // pass
@@ -129,39 +213,151 @@ void Board::pass() {
 
 //-----------------------------------------------------------------------------
 
-// helper for generate_moves
-info_t Board::generate_some_moves(int dir, info_t mask) const {
-  const info_t wh = m_white & mask;
-  const info_t empties = (~(m_black | m_white)) & MASK_BOARD;
+// generate candidates
+Board::Candidates Board::generate_candidates() const {
+  Candidates candidates;
+  candidates.NS = generate_some_candidate(NS);
+  candidates.EW = generate_some_candidate(EW);
+  candidates.NESW = generate_some_candidate(NESW);
+  candidates.NWSE = generate_some_candidate(NWSE);
+  return candidates;
+}
+
+// count legals
+int Board::count_legals() const {
+  return count_bits(generate_legals());
+}
+
+// generate legals
+std::uint64_t Board::generate_legals() const {
+  std::uint64_t legals = generate_some_legals(NS);
+  legals |= generate_some_legals(EW);
+  legals |= generate_some_legals(NESW);
+  legals |= generate_some_legals(NWSE);
+  return legals;
+}
+
+// generate legals with candidates
+std::uint64_t Board::generate_legals(const Candidates & candidates) const {
+  std::uint64_t legals = generate_some_legals(NS, candidates.NS);
+  legals |= generate_some_legals(EW, candidates.EW);
+  legals |= generate_some_legals(NESW, candidates.NESW);
+  legals |= generate_some_legals(NWSE, candidates.NWSE);
+  return legals;
+}
+
+// helper for generate legals
+std::uint64_t Board::generate_some_legals(int dir) const {
+  // empties
+  const std::uint64_t empties = (~(m_black | m_white)) & MASK_BOARD;
 
   // flipped white for black
-  info_t fb = (m_black << dir | m_black >> dir) & wh;
-  fb |= (fb << dir | fb >> dir) & wh;
-  fb |= (fb << dir | fb >> dir) & wh;
-  fb |= (fb << dir | fb >> dir) & wh;
+  std::uint64_t fb = generate_some_candidate(dir);
 
   // legal move = next && empty
   return (fb << dir | fb >> dir) & empties;
 }
 
+// helper for generate legals with candidate
+std::uint64_t Board::generate_some_legals(int dir, std::uint64_t candidate) const {
+  // empties
+  const std::uint64_t empties = (~(m_black | m_white)) & MASK_BOARD;
+
+  // legal move = next && empty
+  return (candidate << dir | candidate >> dir) & empties;
+}
+
+// generate flipped
+std::uint64_t Board::generate_flipped(std::uint64_t move) const {
+  std::uint64_t rev = generate_some_flipped(move, NS);
+  rev |= generate_some_flipped(move, EW);
+  rev |= generate_some_flipped(move, NESW);
+  rev |= generate_some_flipped(move, NWSE);
+  return rev;
+}
+
+// generate flipped with candidates
+std::uint64_t Board::generate_flipped(std::uint64_t move, const Candidates & candidates) const {
+  std::uint64_t rev = generate_some_flipped(move, NS, candidates.NS);
+  rev |= generate_some_flipped(move, EW, candidates.EW);
+  rev |= generate_some_flipped(move, NESW, candidates.NESW);
+  rev |= generate_some_flipped(move, NWSE, candidates.NWSE);
+  return rev;
+}
+
 // helper for generate_flipped
-info_t Board::generate_some_flipped(info_t move, int dir, info_t mask) const {
-  const info_t wh = m_white & mask;
+std::uint64_t Board::generate_some_flipped(std::uint64_t move, int dir) const {
+  // masked white
+  const std::uint64_t wh = m_white & MASKS[dir];
 
   // flipped white for black
-  info_t fb = (m_black << dir | m_black >> dir) & wh;
-  fb |= (fb << dir | fb >> dir) & wh;
-  fb |= (fb << dir | fb >> dir) & wh;
-  fb |= (fb << dir | fb >> dir) & wh;
+  const std::uint64_t fb = generate_some_candidate(dir);
 
   // flipped white for move
-  info_t fm = (move << dir | move >> dir) & wh;
+  std::uint64_t fm = (move << dir | move >> dir) & wh;
   fm |= (fm << dir | fm >> dir) & wh;
   fm |= (fm << dir | fm >> dir) & wh;
   fm |= (fm << dir | fm >> dir) & wh;
 
   // flipped white between black and move
   return fb & fm;
+}
+
+// helper for generate flipped with candidate
+std::uint64_t Board::generate_some_flipped(std::uint64_t move, int dir, std::uint64_t candidate) const {
+  // masked white
+  const std::uint64_t wh = m_white & MASKS[dir];
+
+  // flipped white for move
+  std::uint64_t fm = (move << dir | move >> dir) & wh;
+  fm |= (fm << dir | fm >> dir) & wh;
+  fm |= (fm << dir | fm >> dir) & wh;
+  fm |= (fm << dir | fm >> dir) & wh;
+
+  // flipped white between black and move
+  return candidate & fm;
+}
+
+// helper for generate legals, flipped
+std::uint64_t Board::generate_some_candidate(int dir) const {
+  // masked white
+  const std::uint64_t wh = m_white & MASKS[dir];
+
+  // flipped white for black
+  std::uint64_t fb = (m_black << dir | m_black >> dir) & wh;
+  fb |= (fb << dir | fb >> dir) & wh;
+  fb |= (fb << dir | fb >> dir) & wh;
+  fb |= (fb << dir | fb >> dir) & wh;
+
+  return fb;
+}
+
+// play
+void Board::play(std::uint64_t move) {
+  // generate flipped
+  const std::uint64_t rev = generate_flipped(move);
+
+  // flip
+  flip(move, rev);
+
+  // change turn
+  pass();
+}
+
+// play with rev
+void Board::play(std::uint64_t move, std::uint64_t rev) {
+  // flip
+  flip(move, rev);
+
+  // change turn
+  pass();
+}
+
+// flip
+void Board::flip(std::uint64_t move, std::uint64_t rev) {
+  // flip
+  m_black ^= move | rev;
+  m_white ^= rev;
 }
 
 //-----------------------------------------------------------------------------

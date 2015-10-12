@@ -12,26 +12,32 @@ class Board;
 
 //-----------------------------------------------------------------------------
 
+/**
+ * Principal Variation Search
+ */
 class Pvs {
 public:
-  // constructor/destructor
+  // constructor
   Pvs() = default;
-  Pvs(const Pvs & rhs) = delete;
-  Pvs(Pvs && rhs) = delete;
+
+  // destructor
   virtual ~Pvs() = default;
 
-  // copy/move
+  // copy
+  Pvs(const Pvs & rhs) = delete;
   Pvs & operator=(const Pvs & rhs) = delete;
+
+  // move
+  Pvs(Pvs && rhs) = delete;
   Pvs & operator=(Pvs && rhs) = delete;
 
 //-----------------------------------------------------------------------------
 
   // root search
-  int search(Board b);
+  int search(Board board);
 
   // alpha-beta search
-  int search(Board b, int alpha, int beta);
-
+  int search(Board board, int alpha, int beta);
 };
 
 //-----------------------------------------------------------------------------

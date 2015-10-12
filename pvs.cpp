@@ -2,82 +2,64 @@
  * @file pvs.cpp
  */
 #include "pvs.hpp"
-#include "common.hpp"
 #include "board.hpp"
-#include "move_list.hpp"
 
 //-----------------------------------------------------------------------------
 
 namespace reversi6 {
 
+constexpr int MIN_SCORE = -32;
+constexpr int MAX_SCORE = +32;
+constexpr int TH_NEXT_SORT = 4;
+
 //-----------------------------------------------------------------------------
 
 // root search
-int Pvs::search(Board b) {
-  return search(b, MIN_SCORE, MAX_SCORE);
+int Pvs::search(Board board) {
+  return search(board, MIN_SCORE, MAX_SCORE);
 }
 
 // alpha-beta search
-int Pvs::search(Board b, int alpha, int beta) {
+int Pvs::search(Board board, int alpha, int beta) {
   // one empty
-  const info_t one_empty = b.get_move_if_one_empty();
-  if (one_empty) {
-    // can move
-    if (b.can_move()) {
-      b.set_move(one_empty);
-      return - b.evaluate();
-    } else {
-      b.pass();
-
-      // opponent can move
-      if (b.can_move()) {
-        b.set_move(one_empty);
-        return b.evaluate();
-      } else {
-        // end game
-        return - b.evaluate();
-      }
-    }
+  if (board.play_to_end_game_if_one_empty()) {
+    return board.evaluate();
   }
 
-  // generate moves
-  MoveList move_list(b.generate_moves(), b);
+  // generate next
+  std::vector<Board> next_vec;
+  if (TH_NEXT_SORT >= board.count_empties()) {
+    next_vec = board.generate_next_board_vector();
+  } else {
+    next_vec = board.generate_next_board_sorted_vector();
+  }
 
   // no move
-  if (0 == move_list.size()) {
+  if (next_vec.empty()) {
     // pass
-    b.pass();
+    board.pass();
 
-    // opponent can move
-    if (b.can_move()) {
-      return - search(b, -beta, -alpha);
+    // opponent
+    if (board.has_legals()) {
+      return - search(board, -beta, -alpha);
     } else {
       // end game
-      return - b.evaluate();
+      return - board.evaluate();
     }
   }
 
   // pv node
-  Board first_next(b);
-  first_next.set_move(move_list[0]);
-  const int first_score = - search(first_next, -beta, -alpha);
-  if (first_score > alpha) {
-    // max
-    alpha = first_score;
+  auto it(next_vec.cbegin());
+  alpha = std::max(alpha, - search(*it, -beta, -alpha));
 
-    // beta cut
-    if (alpha >= beta) {
-      return alpha;
-    }
+  // beta cut
+  if (alpha >= beta) {
+    return alpha;
   }
 
-  for (std::size_t i = 1; i < move_list.size(); ++i) {
-    // set move
-    Board next(b);
-    next.set_move(move_list[i]);
-
+  for (++it; it != next_vec.cend(); ++it) {
     // null window search
-    const int score = - search(next, -alpha - 1, -alpha);
+    const int score = - search(*it, -alpha - 1, -alpha);
 
     // beta cut
     if (score >= beta) {
@@ -86,12 +68,12 @@ int Pvs::search(Board b, int alpha, int beta) {
 
     // full window search
     if (score > alpha) {
-      alpha = - search(next, -beta, -alpha);
-    }
+      alpha = - search(*it, -beta, -score);
 
-    // alpha beta cut
-    if (alpha >= beta) {
-      break;
+      // beta cut
+      if (alpha >= beta) {
+        break;
+      }
     }
   }
 
