@@ -42,11 +42,11 @@ clean:
 # target
 $(TARGET): $(OBJS)
 	$(COMPILER) $(FLAGS) $^ $(LIBS) -o $(TARGET)
-# object files, dependancy files
+# object files, dependency files
 $(OBJDIR)/%.$(OBJEXT): %.$(SRCEXT)
 	@(mkdir -p `dirname $@`)
 	$(COMPILER) $(FLAGS) $(OFLAGS) -c $< $(INCS) -o $@
 #------------------------------------------------------------------------------
-# include dependancy files
+# include dependency files
 -include $(DEPS)
 #------------------------------------------------------------------------------
